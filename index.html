@@ -671,6 +671,37 @@ if ('showOpenFilePicker' in window) {
 
 // ---------- datos: copia publicada + almacenamiento compartido ----------
 try { const t = $('#snap').textContent.trim(); if (t.startsWith('{')) setSource(JSON.parse(t), 'snap'); } catch (e) { /* sin copia */ }
+// ---------- datos en vivo (copia pública en GitHub Pages) ----------
+// Lee "datos.xlsx" publicado junto a la página (lo sube el computador de Derk cada vez que se guarda el Excel)
+// y revisa cada minuto si hay una versión nueva.
+if (/\.github\.io$/i.test(location.hostname)) {
+  let marca = null;
+  const vivo = async () => {
+    try {
+      if (!window.XLSX) return;
+      const u = 'datos.xlsx?t=' + Date.now();
+      const h = await fetch(u, { method: 'HEAD', cache: 'no-store' });
+      if (!h.ok) return;
+      const m = h.headers.get('last-modified') || h.headers.get('etag') || '';
+      if (m && m === marca) return;
+      const r = await fetch(u, { cache: 'no-store' }); if (!r.ok) return;
+      const wb = XLSX.read(await r.arrayBuffer(), { type: 'array', cellDates: true, cellStyles: true });
+      const lm = r.headers.get('last-modified') || m;
+      const act = lm && !isNaN(Date.parse(lm)) ? new Date(lm).toISOString() : new Date().toISOString();
+      const find = re => wb.SheetNames.find(n => re.test(n.normalize('NFD').replace(/[̀-ͯ]/g, '').trim()));
+      const hC = find(/^creditos?$/i), hL = find(/^leasing$/i);
+      if (!hC && !hL) return;
+      const filas = [...(hC ? C.parseSheet(XLSX, wb.Sheets[hC], 'C') : []), ...(hL ? C.parseSheet(XLSX, wb.Sheets[hL], 'L') : [])];
+      if (!filas.length) return;
+      const ufX = hL ? C.readUF(XLSX, wb.Sheets[hL]) : null;
+      marca = m;
+      setSource({ archivo: 'Maestro Creditos-Leasing.xlsx', actualizado: act, uf: ufX || (st.src && st.src.uf) || st.uf,
+        ufFuente: ufX ? 'celda UF del Excel' : 'valor UF anterior', filas }, 'vivo');
+    } catch (e) { /* sin conexión o archivo a medio publicar: se mantiene lo que hay */ }
+  };
+  vivo(); setInterval(vivo, 60000);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) vivo(); });
+}
 (async () => {
   const db = window.claude?.use ? await window.claude.use('db') : null;
   st.db = db; if (!db) return;
